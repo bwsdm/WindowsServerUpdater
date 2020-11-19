@@ -3,6 +3,8 @@ $servers = Get-Content .\testservers.txt
 $startTime = Get-Date
 
 $updatesList = @()
+$goodServers = @()
+$runningTable = @{}
 
 function Test-Modules($s, $c) {
   $session = New-PSSession -ComputerName $s -Credential $c -ErrorAction SilentlyContinue
@@ -28,7 +30,7 @@ function Get-Updates($s, $c) {
       $updates = Invoke-Command -Session $session {
           Import-Module PSWindowsUpdate
           $updates = Get-WindowsUpdate -WindowsUpdate
-          $updates.Title
+          return $updates.Title
 
       }
       Get-PSSession | Remove-PSSession
@@ -79,19 +81,30 @@ function Get-UpdateStatus($s, $c) {
   }
 }
 
-foreach ($server in $servers) {
-  $updatesList += Get-Updates $server $creds
+# Main Loop
+# Maybe look into a way to fix servers that dont have module
+foreach($server in $servers) {
+  # Make this a job for parallel testing
+  $testOutcome = Test-Modules($server,$creds)
+  if($testOutcome) {
+    $goodServers += $server
+  }
 }
 
-# Get updates for all servers
-# Begin installation of updates
-# Poll servers for up/down check to find when the reboot and report that
-## How do we handle when a server reboots within a poll window?
-###Event ID?
+# Make this a job for parallel processing
+Start-Updates($goodServers)
 
 
+# Initialize table with "New" values
+foreach($server in $goodServers) {
+  $runningTable[$server] = "New"
+}
 
-# After reboot check for any more updates
-# If no more updates return update history to verify installation
+# Need to look at good servers that dont start updates for whatever reason
+Do {
+  foreach($server in $goodServers) {
+    $status = Get-UpdateStatus($server,$creds)
+    $runningTable[$server] = $status
 
-
+}
+Until ()
