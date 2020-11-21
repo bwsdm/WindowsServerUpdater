@@ -1,10 +1,13 @@
 $creds = Get-Credential
 $servers = Get-Content .\testservers.txt
 $startTime = Get-Date
+$date = Get-Date -Format "MM/dd/yyyy"
 
 $updatesList = @()
 $goodServers = @()
 $runningTable = @{}
+New-Item -Path "C:\mbs-bin\WSULogs"
+
 
 function Test-Modules($s, $c) {
   $session = New-PSSession -ComputerName $s -Credential $c -ErrorAction SilentlyContinue
@@ -95,16 +98,53 @@ foreach($server in $servers) {
 Start-Updates($goodServers)
 
 
-# Initialize table with "New" values
-foreach($server in $goodServers) {
-  $runningTable[$server] = "New"
-}
 
 # Need to look at good servers that dont start updates for whatever reason
 Do {
+
+  # Check each server's status
   foreach($server in $goodServers) {
     $status = Get-UpdateStatus($server,$creds)
     $runningTable[$server] = $status
+  }
+  
+  # Checks for new updates on servers that are done
+  # If they are done, we mark them finished
+  foreach($entry in $runningTable.GetEnumerator()) {
+    if($entry.Value -eq "Updated") {
+      $remainingUpdates = Get-Updates($entry.Key,$c)
+      if(!$remainingUpdates) {
+        Start-Updates($entry.Key)
+        $runningTable[$entry.Key] = "Updating"
+      else {
+        $runningTable[$entry.Key] = "Done"
+      }
+    }
+  }
+  
+  Write-Host $runningTable
+  
+  $finished = $true
+  foreach ($entry in $runningTable.GetEnumerator()) {
+    if($entry.Value -ne "Done") {
+      $finished = $false
+      break
+    }
+  }
+
+  if($finished) {
+    Write-Host "We are done!"
+  }
 
 }
-Until ()
+Until ($finished)
+
+
+# Fetching logs from each server
+Write-Host "Fetching update logs from each server"
+foreach($server in $goodServers) {
+  Copy-Item "\\$($server).mbs.tamu.edu\C$\mbs-bin\updatelog.log" `
+    -Destination "C:\mbs-bin\WSULogs\$($date)$($server)updatelog.log"
+}
+
+Write-Host "Fetch complete. See logs at C:\mbs-bin\WSULogs"
