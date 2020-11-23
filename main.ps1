@@ -1,9 +1,8 @@
 $creds = Get-Credential
-$servers = Get-Content .\testservers.txt
+$servers = Get-Content $args[0]
 $startTime = Get-Date
 $date = Get-Date -Format "MM/dd/yyyy"
 
-$updatesList = @()
 $goodServers = @()
 $runningTable = @{}
 New-Item -Path "C:\mbs-bin\WSULogs"
@@ -25,7 +24,6 @@ function Test-Modules($s, $c) {
 }
 
 
-# Is this even needed?
 function Get-Updates($s, $c) {
   if(Test-Connection $s -Quiet -Count 2) {
 
@@ -86,6 +84,7 @@ function Get-UpdateStatus($s, $c) {
 
 # Main Loop
 # Maybe look into a way to fix servers that dont have module
+<#
 foreach($server in $servers) {
   # Make this a job for parallel testing
   $testOutcome = Test-Modules($server,$creds)
@@ -93,8 +92,16 @@ foreach($server in $servers) {
     $goodServers += $server
   }
 }
+#>
 
-# Make this a job for parallel processing
+# Same as above in different format to utilize parallel processing
+$servers | ForEach-Object -Parallel {
+  $testOutcome = Test-Modules($_,$creds)
+  if($testOutcome) {
+    $goodServers += $_
+  }
+}
+
 Start-Updates($goodServers)
 
 
@@ -103,9 +110,17 @@ Start-Updates($goodServers)
 Do {
 
   # Check each server's status
+  <#
   foreach($server in $goodServers) {
     $status = Get-UpdateStatus($server,$creds)
     $runningTable[$server] = $status
+  }
+  #>
+  
+  # Same as above in different format to utilize parallel processing
+  $goodServers | ForEach-Object -Parallel {
+    $status = Get-UpdateStatus($_,$creds)
+    $runningTable[$_] = $status
   }
   
   # Checks for new updates on servers that are done
@@ -116,13 +131,14 @@ Do {
       if(!$remainingUpdates) {
         Start-Updates($entry.Key)
         $runningTable[$entry.Key] = "Updating"
+      }
       else {
         $runningTable[$entry.Key] = "Done"
       }
     }
   }
   
-  Write-Host $runningTable
+  Write-Output $runningTable
   
   $finished = $true
   foreach ($entry in $runningTable.GetEnumerator()) {
@@ -133,7 +149,7 @@ Do {
   }
 
   if($finished) {
-    Write-Host "We are done!"
+    Write-Output "We are done!"
   }
 
 }
@@ -141,10 +157,10 @@ Until ($finished)
 
 
 # Fetching logs from each server
-Write-Host "Fetching update logs from each server"
+Write-Output "Fetching update logs from each server"
 foreach($server in $goodServers) {
   Copy-Item "\\$($server).mbs.tamu.edu\C$\mbs-bin\updatelog.log" `
     -Destination "C:\mbs-bin\WSULogs\$($date)$($server)updatelog.log"
 }
 
-Write-Host "Fetch complete. See logs at C:\mbs-bin\WSULogs"
+Write-Output "Fetch complete. See logs at C:\mbs-bin\WSULogs"
