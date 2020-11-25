@@ -1,14 +1,21 @@
+Import-Module PSWindowsUpdate
+
 $creds = Get-Credential
-$servers = Get-Content $args[0]
+[string[]]$servers = Get-Content $args[0]
 $startTime = Get-Date
 $date = Get-Date -Format "MM/dd/yyyy"
 
-$goodServers = @()
+#$goodServers = @()
 $runningTable = @{}
-New-Item -Path "C:\mbs-bin\WSULogs"
+New-Item -Path "C:\mbs-bin\WSULogs\" -Force -ItemType Directory
 
 
-function Test-Modules($s, $c) {
+function TestModules {
+  Param(
+    $s,
+    $c
+  )
+
   $session = New-PSSession -ComputerName $s -Credential $c -ErrorAction SilentlyContinue
   $outcome = Invoke-Command -Session $session {
     Import-Module PSWindowsUpdate -ErrorAction SilentlyContinue -ErrorVariable err
@@ -19,7 +26,7 @@ function Test-Modules($s, $c) {
       return $true
     }
   }
-  
+  Get-PSSession | Remove-PSSession   
   return $outcome
 }
 
@@ -53,8 +60,8 @@ function Get-Updates($s, $c) {
 }
 
 
-function Start-Updates($serverList) {
-  Invoke-WUJob -ComputerName $serverList -Script {
+function Start-Updates($s, $c) {
+  Invoke-WUJob -ComputerName $s -Script {
     Import-Module PSWindowsUpdate
     Install-WindowsUpdate -MicrosoftUpdate -AcceptAll `
       -NotCatergory 'Feature Packs','Tool','Driver' | `
@@ -63,7 +70,12 @@ function Start-Updates($serverList) {
   } -RunNow -confirm:$false
 }    
 
-function Get-UpdateStatus($s, $c) {
+function GetUpdateStatus {
+  Param(
+    $s,
+    $c
+  )
+
   $session = New-PSSession -ComputerName $s -Credential $c -ErrorAction SilentlyContinue `
     -ErrorVariable err
   $isBusy = Invoke-Command -Session $session {
@@ -84,43 +96,50 @@ function Get-UpdateStatus($s, $c) {
 
 # Main Loop
 # Maybe look into a way to fix servers that dont have module
+
 <#
-foreach($server in $servers) {
-  # Make this a job for parallel testing
-  $testOutcome = Test-Modules($server,$creds)
-  if($testOutcome) {
-    $goodServers += $server
-  }
-}
+  Ok so this is awful. Parallel foreach is similar to running individual runspaces.
+  At this time there is no easy way to pass in functions to those runspaces.
+  As a result you have to create a string copy of the function definition
+  and then pass it into the runspace using $using and the convert the string
+  back to a function.
+
+  Also, $function doesn't like the "-" in the Verb-Noun naming convention so I had
+  to change those to other names.
 #>
 
-# Same as above in different format to utilize parallel processing
-$servers | ForEach-Object -Parallel {
-  $testOutcome = Test-Modules($_,$creds)
+$tmDef = $function:TestModules.ToString()
+[string[]]$goodServers = $servers | ForEach-Object -Parallel {
+  $function:TestModules = $using:tmDef
+  $testOutcome = TestModules $_ $using:creds
   if($testOutcome) {
-    $goodServers += $_
+    return $_
   }
 }
 
-Start-Updates($goodServers)
+Write-Output "Good Servers: $($goodServers)"
 
+foreach($server in $goodServers) {
+  $s = "$($server).mbs.tamu.edu"
+  Write-Output "Server Name: $($s)"
+  Start-Updates($s,$creds)
+}
 
 
 # Need to look at good servers that dont start updates for whatever reason
 Do {
 
   # Check each server's status
-  <#
-  foreach($server in $goodServers) {
-    $status = Get-UpdateStatus($server,$creds)
-    $runningTable[$server] = $status
+  $gusDef = $function:GetUpdateStatus.ToString()
+  [string[]]$results = $goodServers | ForEach-Object -Parallel {
+    $function:GetUpdateStatus = $using:gusDef
+    $status = GetUpdateStatus $_ $using:creds
+    $returnArray = @($_, $status)
+    return $returnArray
   }
-  #>
-  
-  # Same as above in different format to utilize parallel processing
-  $goodServers | ForEach-Object -Parallel {
-    $status = Get-UpdateStatus($_,$creds)
-    $runningTable[$_] = $status
+
+  foreach($result in $results) {
+    $runningTable[$result[0]] = $result[1]
   }
   
   # Checks for new updates on servers that are done
@@ -151,7 +170,8 @@ Do {
   if($finished) {
     Write-Output "We are done!"
   }
-
+  
+  Start-Sleep 120
 }
 Until ($finished)
 
