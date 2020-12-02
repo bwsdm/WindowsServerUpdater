@@ -7,8 +7,11 @@ $date = Get-Date -Format "MM/dd/yyyy"
 
 #$goodServers = @()
 $runningTable = @{}
-New-Item -Path "C:\mbs-bin\WSULogs\" -Force -ItemType Directory
 
+if(!(Test-Path C:\mbs-bin\WSULogs)) {
+  Write-Host "Directory C:\mbs-bin\WSULogs created"
+  New-Item -Path "C:\mbs-bin\WSULogs\" -Force -ItemType Directory
+}
 
 function TestModules {
   Param(
@@ -60,7 +63,8 @@ function Get-Updates($s, $c) {
 }
 
 
-function Start-Updates($s, $c) {
+function Start-Updates($s) {
+  Write-Output "Invoke Server: $($s)"
   Invoke-WUJob -ComputerName $s -Script {
     Import-Module PSWindowsUpdate
     Install-WindowsUpdate -MicrosoftUpdate -AcceptAll `
@@ -122,7 +126,7 @@ Write-Output "Good Servers: $($goodServers)"
 foreach($server in $goodServers) {
   $s = "$($server).mbs.tamu.edu"
   Write-Output "Server Name: $($s)"
-  Start-Updates($s,$creds)
+  Start-Updates($s)
 }
 
 
