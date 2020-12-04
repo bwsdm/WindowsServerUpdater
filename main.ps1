@@ -20,6 +20,8 @@ function TestModules {
   )
 
   $session = New-PSSession -ComputerName $s -Credential $c -ErrorAction SilentlyContinue
+  # Look into importing the module on failure.
+  # There looked to be an easy way to do this.
   $outcome = Invoke-Command -Session $session {
     Import-Module PSWindowsUpdate -ErrorAction SilentlyContinue -ErrorVariable err
     if($err) {
@@ -68,20 +70,19 @@ function Start-Updates($s) {
   Invoke-WUJob -ComputerName $s -Script {
     Import-Module PSWindowsUpdate
     Install-WindowsUpdate -MicrosoftUpdate -AcceptAll `
-      -NotCatergory 'Feature Packs','Tool','Driver' | `
-      Out-File C:\mbs-bin\updatelog.log | `
-      Restart-Computer # This may not be needed. Want to make sure file is written
+      -NotCatergory 'Feature Packs','Tool','Driver' -AutoReboot | `
+      Out-File C:\mbs-bin\updatelog.log
   } -RunNow -confirm:$false
 }    
-
+# This does not work, cant run Get-WUInstallerStatus remotely
 function GetUpdateStatus {
   Param(
     $s,
     $c
   )
 
-  $session = New-PSSession -ComputerName $s -Credential $c -ErrorAction SilentlyContinue `
-    -ErrorVariable err
+  $session = New-PSSession -ComputerName $s -Credential $c `
+    -ErrorAction SilentlyContinue -ErrorVariable err
   $isBusy = Invoke-Command -Session $session {
     Import-Module PSWindowsUpdate
     $status = Get-WuInstallerStatus
