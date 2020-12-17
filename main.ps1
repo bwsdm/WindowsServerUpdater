@@ -1,6 +1,6 @@
 Import-Module PSWindowsUpdate
 
-$creds = Get-Credential
+$creds = Get-Credential MBS\wisdomadmin
 [string[]]$servers = Get-Content $args[0]
 $startTime = Get-Date
 $date = Get-Date -Format "MM/dd/yyyy"
@@ -67,14 +67,15 @@ function Get-Updates($s, $c) {
 
 function Start-Updates($s) {
   Write-Output "Invoke Server: $($s)"
-  Invoke-WUJob -ComputerName $s -Script {
-    Import-Module PSWindowsUpdate
+  Invoke-WUJob -ComputerName $s -RunNow -Confirm:$false -Script {
+    Import-Module PSWindowsUpdate 
     Install-WindowsUpdate -MicrosoftUpdate -AcceptAll `
-      -NotCatergory 'Feature Packs','Tool','Driver' -AutoReboot | `
+      -NotCategory 'Feature Packs','Tool','Driver' -AutoReboot | `
       Out-File C:\mbs-bin\updatelog.log
-  } -RunNow -confirm:$false
+  }
 }    
 # This does not work, cant run Get-WUInstallerStatus remotely
+<#
 function GetUpdateStatus {
   Param(
     $s,
@@ -98,6 +99,7 @@ function GetUpdateStatus {
     return "Restarting"
   }
 }
+#>
 
 # Main Loop
 # Maybe look into a way to fix servers that dont have module
@@ -132,6 +134,7 @@ foreach($server in $goodServers) {
 
 
 # Need to look at good servers that dont start updates for whatever reason
+<#
 Do {
 
   # Check each server's status
@@ -179,7 +182,7 @@ Do {
   Start-Sleep 120
 }
 Until ($finished)
-
+#>
 
 # Fetching logs from each server
 Write-Output "Fetching update logs from each server"
