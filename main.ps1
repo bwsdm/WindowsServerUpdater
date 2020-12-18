@@ -3,7 +3,7 @@ Import-Module PSWindowsUpdate
 $creds = Get-Credential MBS\wisdomadmin
 [string[]]$servers = Get-Content $args[0]
 $startTime = Get-Date
-$date = Get-Date -Format "MM/dd/yyyy"
+$date = Get-Date -Format "MMddyyyy"
 
 #$goodServers = @()
 $runningTable = @{}
@@ -36,9 +36,9 @@ function TestModules {
 }
 
 
-function Get-Updates($s, $c) {
-  if(Test-Connection $s -Quiet -Count 2) {
+function Get-Updates([String]$s, $c) {
 
+  if(Test-Connection $s -Quiet -Count 2) {
       $session = New-PSSession -ComputerName $s -Credential $c -ErrorAction Stop
       $updates = Invoke-Command -Session $session {
           Import-Module PSWindowsUpdate
@@ -74,32 +74,6 @@ function Start-Updates($s) {
       Out-File C:\mbs-bin\updatelog.log
   }
 }    
-# This does not work, cant run Get-WUInstallerStatus remotely
-<#
-function GetUpdateStatus {
-  Param(
-    $s,
-    $c
-  )
-
-  $session = New-PSSession -ComputerName $s -Credential $c `
-    -ErrorAction SilentlyContinue -ErrorVariable err
-  $isBusy = Invoke-Command -Session $session {
-    Import-Module PSWindowsUpdate
-    $status = Get-WuInstallerStatus
-    return $status.IsBusy
-  }
-  if((-not $err) -and ($isBusy)) {
-    return "Updating"
-  }
-  elseif((-not $err) -and (-not $isBusy)) {
-    return "Updated"
-  }
-  else {
-    return "Restarting"
-  }
-}
-#>
 
 # Main Loop
 # Maybe look into a way to fix servers that dont have module
@@ -134,33 +108,47 @@ foreach($server in $goodServers) {
 
 
 # Need to look at good servers that dont start updates for whatever reason
-<#
 Do {
-
+  $results = @{}
   # Check each server's status
-  $gusDef = $function:GetUpdateStatus.ToString()
-  [string[]]$results = $goodServers | ForEach-Object -Parallel {
-    $function:GetUpdateStatus = $using:gusDef
-    $status = GetUpdateStatus $_ $using:creds
-    $returnArray = @($_, $status)
-    return $returnArray
+  $results = $goodServers | ForEach-Object -Parallel {
+    $session = New-PSSession -ComputerName $_ -Credential $using:creds `
+      -ErrorVariable err
+    $outcome = Invoke-Command -Session $session -ErrorVariable err2 {
+      Import-Module PSWindowsUpdate
+      Get-WUList -MicrosoftUpdate -NotCategory "Feature Packs", "Tool", "Driver"
+    }
+    Remove-PSSession $session
+    if ($err -or $err2) {
+      Write-Output "$_ Rebooting"
+      return "$_ Rebooting" 
+    }
+    if ($outcome) {
+      Write-Output "$_ Running"
+      return "$_ Running"
+    }
+    else {
+      Write-Output "$_ Done"
+      return "$_ Done"
+    }
   }
 
   foreach($result in $results) {
+    $result = $result.Split(" ")
     $runningTable[$result[0]] = $result[1]
   }
   
   # Checks for new updates on servers that are done
   # If they are done, we mark them finished
-  foreach($entry in $runningTable.GetEnumerator()) {
-    if($entry.Value -eq "Updated") {
-      $remainingUpdates = Get-Updates($entry.Key,$c)
+  foreach($server in $goodServers) {
+    if($runningTable[$server] -eq "Done") {
+      $remainingUpdates = Get-Updates($server,$c)
       if(!$remainingUpdates) {
-        Start-Updates($entry.Key)
-        $runningTable[$entry.Key] = "Updating"
+        Start-Updates($server)
+        $runningTable[$server] = "Updating"
       }
       else {
-        $runningTable[$entry.Key] = "Done"
+        $runningTable[$server] = "Finished"
       }
     }
   }
@@ -168,8 +156,8 @@ Do {
   Write-Output $runningTable
   
   $finished = $true
-  foreach ($entry in $runningTable.GetEnumerator()) {
-    if($entry.Value -ne "Done") {
+  foreach ($server in $goodServers) {
+    if($runningTable[$server] -ne "Finished") {
       $finished = $false
       break
     }
@@ -177,12 +165,12 @@ Do {
 
   if($finished) {
     Write-Output "We are done!"
+    break
   }
   
   Start-Sleep 120
 }
 Until ($finished)
-#>
 
 # Fetching logs from each server
 Write-Output "Fetching update logs from each server"

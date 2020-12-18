@@ -7,9 +7,9 @@ $servers | ForEach-Object -Parallel {
     -ErrorVariable err
   $outcome = Invoke-Command -Session $session -ErrorVariable err2 {
     Import-Module PSWindowsUpdate
-    Get-WUHistory -MaxDate (Get-Date).AddDays(-45) | Where { `
-      $_.Title -notlike "Security Intelligence*"}
-#    Get-WUList -WindowsUpdate -NotCategory "Feature Packs","Tool","Driver"
+#    Get-WUHistory -MaxDate (Get-Date).AddDays(-45) | Where { `
+#      $_.Title -notlike "Security Intelligence*"}
+    Get-WUList -WindowsUpdate -NotCategory "Feature Packs","Tool","Driver"
   }
   Remove-PSSession $session
   if ($err -or $err2) {
